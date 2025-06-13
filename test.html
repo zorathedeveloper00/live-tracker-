@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Live IP Location Tracker</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    :root {
+      
+      --text: red;
+      --highlight: #10b981;
+      --panel: rgba(0, 0, 0, 0.5);
+      --font: 'Segoe UI', sans-serif;
+    }
+
+    body {
+      font-family: var(--font);
+      margin: 0;
+background-image: url('https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSFVOZ2CsKQIPT0Lk06f5bNALaBIuEhMWppBg&s');
+      background-size: ;
+      background-repeat: ;
+      color: var(--text);
+    }
+
+    header {
+      background:rgba(0, 0, 0, 0.5);
+      padding: 1rem;
+      text-align: center;
+      font-size: 1.8rem;
+      font-weight: bold;
+      border-bottom: 2px solid var(--text);
+    }
+
+    .container {
+      max-width: 1000px;
+      margin: auto;
+      padding: 1rem;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+      margin-bottom: 1rem;
+    }
+
+    input[type="text"],
+    input[type="file"] {
+      padding: 0.5rem;
+      border-radius: 0.4rem;
+      border: none;
+      background: var(--panel);
+      color: var(--highlight);
+    }
+
+    button {
+      padding: 0.5rem;
+      border-radius: 0.4rem;
+      border: none;
+      background: var(--text);
+      color: var(--highlight);
+      cursor: pointer;
+    }
+
+    button:hover {
+rgba(0, 0, 0, 0.5)
+      color: var(--text);
+    }
+
+    #map {
+      height: 500px;
+      border-radius: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .logs,
+    .saved-markers-list {
+      background: var(--panel);
+      padding: 1rem;
+      border-radius: 0.5rem;
+      max-height: 200px;
+      overflow-y: auto;
+      font-size: 0.9rem;
+      margin-top: 1rem;
+    }
+
+    .log-entry,
+    .marker-item {
+      padding: 0.3rem 0;
+      border-top: 1px solid red;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .remove-marker {
+      cursor: pointer;
+      color: red;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<header>Live IP Location Tracker</header>
+
+<div class="container">
+  <div class="controls">
+    <input type="text" id="ipInput" placeholder="Enter IP address" />
+    <button id="getLocationBtn">Get Location</button>
+    <button id="saveMarkerBtn">Save Marker</button>
+    <button id="clearMarkersBtn">Clear All Markers</button>
+  </div>
+
+  <div class="actions">
+    <button id="copyInfoBtn">Copy Info</button>
+    <button id="exportJsonBtn">Export Markers</button>
+    <input type="file" id="importFile" />
+    <button id="resetMapBtn">Reset Map</button>
+    <button id="toggleThemeBtn">Toggle Theme</button>
+  </div>
+
+  <div id="map"></div>
+
+  <div class="logs" id="log"><strong>Activity Log:</strong></div>
+  <div class="saved-markers-list" id="savedMarkersList"><strong>Saved Markers:</strong></div>
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.6.0/axios.min.js"></script>
+<script>
+  const map = L.map('map').setView([20, 0], 2);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+  let currentMarker = null;
+  let currentInfo = '';
+  const logPanel = document.getElementById('log');
+  const savedMarkersList = document.getElementById('savedMarkersList');
+
+  document.getElementById('getLocationBtn').addEventListener('click', async () => {
+    const ip = document.getElementById('ipInput').value.trim();
+    if (!ip) return alert("Enter an IP address.");
+
+    try {
+      const res = await axios.get(`https://ipapi.co/${ip}/json/`);
+      const data = res.data;
+
+      if (data.error) {
+        log(`Error: ${data.reason}`);
+        return;
+      }
+
+      const { latitude, longitude, city, region, country } = data;
+      currentInfo = `Location: ${city}, ${region}, ${country}`;
+      log(currentInfo);
+
+      map.setView([latitude, longitude], 10);
+
+      if (currentMarker) map.removeLayer(currentMarker);
+
+      currentMarker = L.marker([latitude, longitude]).addTo(map)
+        .bindPopup(currentInfo)
+        .openPopup();
+
+    } catch (err) {
+      console.error(err);
+      log('Failed to retrieve location.');
+    }
+  });
+
+  document.getElementById('saveMarkerBtn').addEventListener('click', () => {
+    if (!currentMarker) return alert("No marker to save.");
+
+    const { lat, lng } = currentMarker.getLatLng();
+    const saved = JSON.parse(localStorage.getItem('savedMarkers') || '[]');
+    saved.push({ lat, lng });
+    localStorage.setItem('savedMarkers', JSON.stringify(saved));
+    log(`Saved Marker: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+
+    updateSavedMarkersList();
+  });
+
+  document.getElementById('clearMarkersBtn').addEventListener('click', () => {
+    if (confirm("Clear all markers?")) {
+      localStorage.removeItem('savedMarkers');
+      map.eachLayer(layer => {
+        if (layer instanceof L.Marker) map.removeLayer(layer);
+      });
+      updateSavedMarkersList();
+      log("All markers cleared.");
+    }
+  });
+
+  document.getElementById('copyInfoBtn').addEventListener('click', () => {
+    if (!currentInfo) return alert("No info to copy.");
+    navigator.clipboard.writeText(currentInfo);
+    log("Location info copied to clipboard.");
+  });
+
+  document.getElementById('exportJsonBtn').addEventListener('click', () => {
+    const saved = localStorage.getItem('savedMarkers');
+    const blob = new Blob([saved], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'markers.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    log("Exported markers to JSON.");
+  });
+
+  document.getElementById('importFile').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const markers = JSON.parse(reader.result);
+        localStorage.setItem('savedMarkers', JSON.stringify(markers));
+        updateSavedMarkersList();
+        log("Imported markers from JSON.");
+      } catch {
+        log("Invalid JSON file.");
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  document.getElementById('resetMapBtn').addEventListener('click', () => {
+    map.setView([20, 0], 2);
+    log("Map reset to default view.");
+  });
+
+  document.getElementById('toggleThemeBtn').addEventListener('click', () => {
+    const root = document.documentElement;
+    const dark = getComputedStyle(root).getPropertyValue('--bg') === '#0f172a';
+    if (dark) {
+      root.style.setProperty('--bg', 'red');
+      root.style.setProperty('--text', 'green');
+      root.style.setProperty('--highlight', 'red');
+      root.style.setProperty('--panel', 'rgba(0, 0, 0, 0.5)');
+    } else {
+      root.style.setProperty('--bg', 'red');
+      root.style.setProperty('--text', 'red');
+      root.style.setProperty('--highlight', 'green');
+      root.style.setProperty('--panel', 'rgba(0, 0, 0, 0.5)');
+    }
+    log("Theme toggled.");
+  });
+
+  function log(message) {
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+    logPanel.prepend(entry);
+  }
+
+  function updateSavedMarkersList() {
+    const saved = JSON.parse(localStorage.getItem('savedMarkers') || '[]');
+    savedMarkersList.innerHTML = "<strong>Saved Markers:</strong>";
+    saved.forEach((m, i) => {
+      const entry = document.createElement('div');
+      entry.className = 'marker-item';
+      entry.innerHTML = `Lat: ${m.lat.toFixed(4)}, Lng: ${m.lng.toFixed(4)} <span class="remove-marker" onclick="removeMarker(${i})">Remove</span>`;
+      savedMarkersList.appendChild(entry);
+
+      L.marker([m.lat, m.lng]).addTo(map)
+        .bindPopup(`Saved Marker: ${m.lat.toFixed(4)}, ${m.lng.toFixed(4)}`);
+    });
+  }
+
+  window.removeMarker = (index) => {
+    const saved = JSON.parse(localStorage.getItem('savedMarkers') || '[]');
+    saved.splice(index, 1);
+    localStorage.setItem('savedMarkers', JSON.stringify(saved));
+    updateSavedMarkersList();
+    log("Marker removed.");
+  };
+
+  window.onload = updateSavedMarkersList;
+</script>
+</body>
+</html>
